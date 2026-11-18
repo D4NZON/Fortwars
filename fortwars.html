@@ -2,12 +2,12 @@
 <html lang="sv">
 <head>
     <meta charset="UTF-8">
-    <title>Mini-Build Battle 3D</title>
+    <title>Fortwars 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; }
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; background: #0f172a; }
         #menu {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(15, 23, 42, 0.9); color: white;
+            background: rgba(15, 23, 42, 0.95); color: white;
             display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;
         }
         .box { background: #1e293b; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -18,107 +18,117 @@
         #crosshair { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; transform: translate(-50%, -50%); color: white; font-size: 20px; pointer-events: none; display: none; }
         #controls { position: absolute; bottom: 15px; left: 15px; color: #cbd5e1; font-size: 14px; text-shadow: 1px 1px 2px black; display: none; }
     </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
 <div id="menu">
     <div class="box">
-        <h1>🧱 Mini-Build Battle</h1>
+        <h1>🧱 Fortwars 3D</h1>
         <p>Skapa ett rum eller skriv in en kompis kod:</p>
-        <button onclick="createRoom()">Skapa nytt spel (Få kod)</button>
+        <button id="createBtn">Skapa nytt spel (Få kod)</button>
         <br><br>
         <input type="text" id="joinCode" placeholder="RUMSKOD" maxlength="5">
-        <button onclick="joinRoom()">Gå med i spel</button>
-        <p id="status" style="color: #fbbf24; margin-top: 15px;"></p>
+        <button id="joinBtn">Gå med i spel</button>
+        <p id="status" style="color: #fbbf24; font-weight: bold; margin-top: 15px;"></p>
     </div>
 </div>
 
 <div id="hud">
     <div>Rumskod: <b id="roomDisplay">-</b></div>
     <div>Liv: <b id="hpDisplay">100</b> HP</div>
-    <div>Valt byggblock: <b id="buildModeDisplay">Vägg [Q]</b></div>
+    <div>Byggblock: <b id="buildModeDisplay">Vägg [Q]</b></div>
 </div>
 <div id="crosshair">+</div>
 <div id="controls">
-    <b>WASD:</b> Spring | <b>Mellanslag:</b> Hoppa | <b>Vänsterklick:</b> Skjut | <b>Högerklick / E:</b> Bygg | <b>Q:</b> Byt Vägg/Ramp
+    <b>WASD:</b> Spring | <b>Mellanslag:</b> Hoppa | <b>Vänsterklick:</b> Skjut | <b>Högerklick / E:</b> Bygg | <b>Q:</b> Vägg/Ramp
 </div>
 
 <script>
-let peer, conn;
-let isHost = false;
 let roomCode = "";
 let hp = 100;
-let buildMode = "wall"; // "wall" eller "ramp"
-
-// Three.js variabler
-let scene, camera, renderer;
-let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-let velocity = new THREE.Vector3();
-let canJump = false;
-let prevTime = performance.now();
-let walkTime = 0;
-
-// Spelobjekt
-let leftArm, rightArm, gun;
-let enemyMesh;
-let bullets = [];
-let buildings = [];
+let buildMode = "wall";
+let peer = null;
+let conn = null;
 
 function generateCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let res = "";
-    for (let i = 0; i < 5; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < 5; i++) {
+        res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
     return res;
 }
-function createRoom() {
+
+function loadScripts(callback) {
+    const s1 = document.createElement('script');
+    s1.src = "https://" + "://cloudflare.com";
+    s1.onload = function() {
+        const s2 = document.createElement('script');
+        s2.src = "https://" + "://unpkg.com";
+        s2.onload = callback;
+        s2.onerror = callback;
+        document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
+}
+
+document.getElementById("createBtn").onclick = function() {
     roomCode = generateCode();
-    isHost = true;
-    document.getElementById("status").innerText = "Din kod är: " + roomCode + ". Startar...";
+    document.getElementById("status").innerText = "DIN KOD ÄR: " + roomCode + " (Laddar 3D...)";
     
-    setTimeout(function() {
+    loadScripts(function() {
         startGame();
-    }, 500);
+        if (typeof Peer !== "undefined") {
+            peer = new Peer("MBB-" + roomCode);
+            peer.on('connection', function(c) {
+                conn = c;
+                setupConnection();
+            });
+        }
+    });
+};
 
-    if (typeof Peer !== "undefined") {
-        peer = new Peer("MBB-" + roomCode);
-        peer.on('connection', function(connection) {
-            conn = connection;
-            setupConnection();
-        });
-    }
-
-function joinRoom() {
+document.getElementById("joinBtn").onclick = function() {
     const code = document.getElementById("joinCode").value.trim().toUpperCase();
     if (!code) return;
     roomCode = code;
     document.getElementById("status").innerText = "Ansluter till " + roomCode + "...";
-    peer = new Peer();
-
-    peer.on('open', () => {
-        conn = peer.connect("MBB-" + roomCode);
-        conn.on('open', () => {
-            setupConnection();
-            startGame();
-        });
+    
+    loadScripts(function() {
+        startGame();
+        if (typeof Peer !== "undefined") {
+            peer = new Peer();
+            peer.on('open', function() {
+                conn = peer.connect("MBB-" + roomCode);
+                conn.on('open', setupConnection);
+            });
+        }
     });
-}
+};
+
+let scene, camera, renderer, leftArm, rightArm, enemyMesh;
+let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+let velocity = { x: 0, y: 0, z: 0 };
+let canJump = false;
+let prevTime = performance.now();
+let walkTime = 0;
+let bullets = [];
+let buildings = [];
 
 function setupConnection() {
-    conn.on('data', (data) => {
+    if (!conn) return;
+    conn.on('data', function(data) {
         if (data.type === "move" && enemyMesh) {
             enemyMesh.position.set(data.x, data.y - 1.6, data.z);
             enemyMesh.rotation.y = data.ry;
         } else if (data.type === "shoot") {
             spawnBullet(new THREE.Vector3(data.x, data.y, data.z), new THREE.Vector3(data.dx, data.dy, data.dz), false);
         } else if (data.type === "build") {
-            placeBuilding(new THREE.Vector3(data.x, data.y, data.z), data.ry, data.mode, false);
+            placeBuilding(new THREE.Vector3(data.x, data.y, data.z), data.ry, data.mode);
         } else if (data.type === "hit") {
             hp -= 20;
             document.getElementById("hpDisplay").innerText = hp;
             if (hp <= 0) {
-                alert("Du blev eliminerad! Spelet startar om.");
                 hp = 100;
                 document.getElementById("hpDisplay").innerText = hp;
                 camera.position.set(Math.random() * 20 - 10, 2, Math.random() * 20 - 10);
@@ -134,11 +144,6 @@ function startGame() {
     document.getElementById("controls").style.display = "block";
     document.getElementById("roomDisplay").innerText = roomCode;
 
-    init3D();
-    animate();
-}
-
-function init3D() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
     scene.fog = new THREE.Fog(0x87ceeb, 10, 150);
@@ -151,28 +156,21 @@ function init3D() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Ljus
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
-    scene.add(hemiLight);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.8));
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
     dirLight.position.set(20, 50, 20);
     scene.add(dirLight);
 
-    // Mark
-    const floorGeo = new THREE.PlaneGeometry(200, 200);
-    const floorMat = new THREE.MeshLambertMaterial({ color: 0x4ade80 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
+    const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.MeshLambertMaterial({ color: 0x4ade80 })
+    );
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
+    scene.add(new THREE.GridHelper(200, 50, 0x16a34a, 0x22c55e));
 
-    // Rutnät på marken
-    const grid = new THREE.GridHelper(200, 50, 0x16a34a, 0x22c55e);
-    scene.add(grid);
-
-    // Skapa spelarens händer och vapen (fästa vid kameran)
     const armGeo = new THREE.BoxGeometry(0.15, 0.15, 0.6);
     const skinMat = new THREE.MeshLambertMaterial({ color: 0xfcd34d });
-    
     leftArm = new THREE.Mesh(armGeo, skinMat);
     leftArm.position.set(-0.35, -0.3, -0.4);
     camera.add(leftArm);
@@ -181,29 +179,28 @@ function init3D() {
     rightArm.position.set(0.35, -0.3, -0.4);
     camera.add(rightArm);
 
-    const gunGeo = new THREE.BoxGeometry(0.1, 0.15, 0.5);
-    const gunMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
-    gun = new THREE.Mesh(gunGeo, gunMat);
+    const gun = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.15, 0.5),
+        new THREE.MeshLambertMaterial({ color: 0x1e293b })
+    );
     gun.position.set(0, 0.08, -0.25);
     rightArm.add(gun);
-
     scene.add(camera);
 
-    // Skapa motståndarens karaktär
-    const enemyGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-    const enemyMat = new THREE.MeshLambertMaterial({ color: 0xef4444 });
-    enemyMesh = new THREE.Mesh(enemyGeo, enemyMat);
-    enemyMesh.position.set(0, -10, 0); // Gömd tills någon ansluter
+    enemyMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.8, 1.8, 0.8),
+        new THREE.MeshLambertMaterial({ color: 0xef4444 })
+    );
+    enemyMesh.position.set(0, -10, 0);
     scene.add(enemyMesh);
 
-    // Kontroller
-    document.body.addEventListener('click', () => {
+    document.body.addEventListener('click', function() {
         if (document.pointerLockElement !== document.body) {
             document.body.requestPointerLock();
         }
     });
 
-    document.addEventListener('mousemove', (e) => {
+    document.addEventListener('mousemove', function(e) {
         if (document.pointerLockElement === document.body) {
             camera.rotation.y -= e.movementX * 0.002;
             camera.rotation.x -= e.movementY * 0.002;
@@ -211,89 +208,84 @@ function init3D() {
         }
     });
 
-    document.addEventListener('mousedown', (e) => {
+    document.addEventListener('mousedown', function(e) {
         if (document.pointerLockElement !== document.body) return;
-        if (e.button === 0) shoot(); // Vänsterklick: Skjut
-        if (e.button === 2) build(); // Högerklick: Bygg
+        if (e.button === 0) shoot();
+        if (e.button === 2) build();
     });
 
-    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
-    document.addEventListener('keydown', (e) => {
-        switch (e.code) {
-            case 'KeyW': moveForward = true; break;
-            case 'KeyS': moveBackward = true; break;
-            case 'KeyA': moveLeft = true; break;
-            case 'KeyD': moveRight = true; break;
-            case 'Space': if (canJump) { velocity.y += 12; canJump = false; } break;
-            case 'KeyE': build(); break;
-            case 'KeyQ': 
-                buildMode = buildMode === "wall" ? "ramp" : "wall";
-                document.getElementById("buildModeDisplay").innerText = (buildMode === "wall" ? "Vägg" : "Ramp") + " [Q]";
-                break;
+    document.addEventListener('keydown', function(e) {
+        if (e.code === 'KeyW') moveForward = true;
+        if (e.code === 'KeyS') moveBackward = true;
+        if (e.code === 'KeyA') moveLeft = true;
+        if (e.code === 'KeyD') moveRight = true;
+        if (e.code === 'Space' && canJump) { velocity.y += 12; canJump = false; }
+        if (e.code === 'KeyE') build();
+        if (e.code === 'KeyQ') {
+            buildMode = buildMode === "wall" ? "ramp" : "wall";
+            document.getElementById("buildModeDisplay").innerText = (buildMode === "wall" ? "Vägg" : "Ramp") + " [Q]";
         }
     });
 
-    document.addEventListener('keyup', (e) => {
-        switch (e.code) {
-            case 'KeyW': moveForward = false; break;
-            case 'KeyS': moveBackward = false; break;
-            case 'KeyA': moveLeft = false; break;
-            case 'KeyD': moveRight = false; break;
-        }
+    document.addEventListener('keyup', function(e) {
+        if (e.code === 'KeyW') moveForward = false;
+        if (e.code === 'KeyS') moveBackward = false;
+        if (e.code === 'KeyA') moveLeft = false;
+        if (e.code === 'KeyD') moveRight = false;
     });
+
+    animate();
 }
 
 function shoot() {
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     const startPos = camera.position.clone().add(dir.clone().multiplyScalar(0.8));
-    
     spawnBullet(startPos, dir, true);
-
-    // Rekyl på höger hand
     rightArm.position.z = -0.25;
-
     if (conn && conn.open) {
         conn.send({ type: "shoot", x: startPos.x, y: startPos.y, z: startPos.z, dx: dir.x, dy: dir.y, dz: dir.z });
     }
 }
 
 function spawnBullet(pos, dir, isMine) {
-    const bGeo = new THREE.SphereGeometry(0.1, 8, 8);
-
-const bMat = new THREE.MeshBasicMaterial({ color: isMine ? 0xfacc15 : 0xff0000 });
-const bullet = new THREE.Mesh(bGeo, bMat);
-bullet.position.copy(pos);
-scene.add(bullet);
-bullets.push({ mesh: bullet, dir: dir, isMine: isMine, life: 60 });
+    const bullet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 8, 8),
+        new THREE.MeshBasicMaterial({ color: isMine ? 0xfacc15 : 0xff0000 })
+    );
+    bullet.position.copy(pos);
+    scene.add(bullet);
+    bullets.push({ mesh: bullet, dir: dir, isMine: isMine, life: 60 });
 }
+
 function build() {
+
 const dir = new THREE.Vector3();
 camera.getWorldDirection(dir);
 dir.y = 0;
 dir.normalize();
-// Snappa positionen till ett rutnät (4x4 meter som i Fortnite)
 const targetPos = camera.position.clone().add(dir.multiplyScalar(3.5));
 const snapX = Math.round(targetPos.x / 4) * 4;
 const snapZ = Math.round(targetPos.z / 4) * 4;
 const snapY = Math.max(2, Math.round(camera.position.y / 4) * 4 + 2);
 const snapRot = Math.round(camera.rotation.y / (Math.PI / 2)) * (Math.PI / 2);
 const pos = new THREE.Vector3(snapX, snapY, snapZ);
-placeBuilding(pos, snapRot, buildMode, true);
+placeBuilding(pos, snapRot, buildMode);
 if (conn && conn.open) {
 conn.send({ type: "build", x: pos.x, y: pos.y, z: pos.z, ry: snapRot, mode: buildMode });
 }
 }
-function placeBuilding(pos, rotY, mode, isMine) {
-const geo = new THREE.BoxGeometry(4, 4, 0.2);
-const mat = new THREE.MeshLambertMaterial({ color: 0xd97706, transparent: true, opacity: 0.9 });
-const mesh = new THREE.Mesh(geo, mat);
+function placeBuilding(pos, rotY, mode) {
+const mesh = new THREE.Mesh(
+new THREE.BoxGeometry(4, 4, 0.3),
+new THREE.MeshLambertMaterial({ color: 0xd97706, transparent: true, opacity: 0.9 })
+);
 mesh.position.copy(pos);
 mesh.rotation.y = rotY;
-if (mode === "ramp") {
-mesh.rotation.x = Math.PI / 4;
-}
+mesh.userData.mode = mode;
+if (mode === "ramp") mesh.rotation.x = Math.PI / 4;
 scene.add(mesh);
 buildings.push(mesh);
 }
@@ -302,10 +294,9 @@ requestAnimationFrame(animate);
 const time = performance.now();
 const delta = (time - prevTime) / 1000;
 prevTime = time;
-// Gravitation och rörelse
 velocity.x -= velocity.x * 10.0 * delta;
 velocity.z -= velocity.z * 10.0 * delta;
-velocity.y -= 30.0 * delta; // Gravitation
+velocity.y -= 30.0 * delta;
 const forward = new THREE.Vector3();
 camera.getWorldDirection(forward);
 forward.y = 0;
@@ -320,13 +311,10 @@ if (moveLeft) { velocity.x -= right.x * 80 * delta; velocity.z -= right.z * 80 *
 camera.position.x += velocity.x * delta;
 camera.position.z += velocity.z * delta;
 camera.position.y += velocity.y * delta;
-// Golvkollision (inklusive om du går upp på ramper)
 let groundHeight = 2;
-buildings.forEach(b => {
+buildings.forEach(function(b) {
 if (Math.abs(camera.position.x - b.position.x) < 2.2 && Math.abs(camera.position.z - b.position.z) < 2.2) {
-if (b.rotation.x > 0) { // Om det är en ramp
-groundHeight = Math.max(groundHeight, b.position.y + 1.5);
-}
+if (b.userData.mode === "ramp") groundHeight = Math.max(groundHeight, b.position.y + 1.5);
 }
 });
 if (camera.position.y < groundHeight) {
@@ -334,7 +322,6 @@ velocity.y = 0;
 camera.position.y = groundHeight;
 canJump = true;
 }
-// Animera händerna när du springer
 if (isMoving && canJump) {
 walkTime += delta * 12;
 leftArm.position.y = -0.3 + Math.sin(walkTime) * 0.05;
@@ -342,18 +329,15 @@ leftArm.position.z = -0.4 + Math.cos(walkTime) * 0.08;
 rightArm.position.y = -0.3 - Math.sin(walkTime) * 0.05;
 rightArm.position.z += (-0.4 - Math.cos(walkTime) * 0.05 - rightArm.position.z) * 0.2;
 } else {
-// Återställ händerna mjukt
 leftArm.position.y += (-0.3 - leftArm.position.y) * 0.1;
 leftArm.position.z += (-0.4 - leftArm.position.z) * 0.1;
 rightArm.position.y += (-0.3 - rightArm.position.y) * 0.1;
 rightArm.position.z += (-0.4 - rightArm.position.z) * 0.1;
 }
-// Uppdatera skott
 for (let i = bullets.length - 1; i >= 0; i--) {
 const b = bullets[i];
 b.mesh.position.add(b.dir.clone().multiplyScalar(1.5));
 b.life--;
-// Kolla träff på motståndare
 if (b.isMine && enemyMesh && b.mesh.position.distanceTo(enemyMesh.position) < 1.2) {
 if (conn && conn.open) conn.send({ type: "hit" });
 b.life = 0;
@@ -363,19 +347,11 @@ scene.remove(b.mesh);
 bullets.splice(i, 1);
 }
 }
-// Skicka din position till din kompis
 if (conn && conn.open) {
-conn.send({
-type: "move",
-x: camera.position.x,
-y: camera.position.y,
-z: camera.position.z,
-ry: camera.rotation.y
-});
+conn.send({ type: "move", x: camera.position.x, y: camera.position.y, z: camera.position.z, ry: camera.rotation.y });
 }
 renderer.render(scene, camera);
 }
-</script>
+    </script>
 </body>
 </html>
- 
