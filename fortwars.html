@@ -72,24 +72,23 @@ function generateCode() {
     for (let i = 0; i < 5; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
     return res;
 }
-
 function createRoom() {
     roomCode = generateCode();
-    document.getElementById("status").innerText = "Skapar rum " + roomCode + "...";
-    peer = new Peer("MBB-" + roomCode);
+    isHost = true;
+    document.getElementById("status").innerText = "Din kod är: " + roomCode + ". Startar...";
     
-    peer.on('open', () => {
-        isHost = true;
-        document.getElementById("status").innerText = "Rum skapat! Din kod är: " + roomCode + ". Startar...";
-        setTimeout(() => startGame(), 1000);
-    });
+    setTimeout(function() {
+        startGame();
+    }, 500);
 
-    peer.on('connection', (connection) => {
-        conn = connection;
-        setupConnection();
-    });
+    if (typeof Peer !== "undefined") {
+        peer = new Peer("MBB-" + roomCode);
+        peer.on('connection', function(connection) {
+            conn = connection;
+            setupConnection();
+        });
+    }
 }
-
 function joinRoom() {
     const code = document.getElementById("joinCode").value.trim().toUpperCase();
     if (!code) return;
