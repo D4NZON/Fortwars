@@ -261,7 +261,7 @@ function shoot() {
 
 function spawnBullet(pos, dir, isMine) {
     const bGeo = new THREE.SphereGeometry(0.1, 8, 8);
-Använd koden med försiktighet.
+
 const bMat = new THREE.MeshBasicMaterial({ color: isMine ? 0xfacc15 : 0xff0000 });
 const bullet = new THREE.Mesh(bGeo, bMat);
 bullet.position.copy(pos);
