@@ -60,11 +60,14 @@ function generateCode() {
 }
 
 function loadScripts(callback) {
+    const p1 = "https:" + "//cdn.jsdelivr." + "net/npm/three@0.128.0/build/three.min.js";
+    const p2 = "https:" + "//cdn.jsdelivr." + "net/npm/peerjs@1.5.2/dist/peerjs.min.js";
+    
     const s1 = document.createElement('script');
-    s1.src = "https://" + "://cloudflare.com";
+    s1.src = p1;
     s1.onload = function() {
         const s2 = document.createElement('script');
-        s2.src = "https://" + "://unpkg.com";
+        s2.src = p2;
         s2.onload = callback;
         s2.onerror = callback;
         document.head.appendChild(s2);
