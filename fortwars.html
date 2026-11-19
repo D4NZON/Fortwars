@@ -87,10 +87,10 @@ const maxAmmo = { Pistol: 12, Hagelgevär: 5, Sniper: 3 };
 let activeSlot = 0, isAiming = false, isReloading = false;
 
 let scene, camera, renderer, raycaster, woodTex;
-let playerGroup, playerPos = new THREE.Vector3(0, 0, 10), playerYaw = 0, camPitch = 0.2;
+let playerGroup, playerPos = null, playerYaw = 0, camPitch = 0.2;
 let enemyMesh, leftLeg, rightLeg, weaponModels = {}, blueprintGroup;
 let moveF = false, moveB = false, moveL = false, moveR = false, canJump = false;
-let velocity = new THREE.Vector3(), prevTime = performance.now(), walkTime = 0;
+let velocity = null(), prevTime = performance.now(), walkTime = 0;
 let bullets = [], buildings = [], chests = [];
 let stormRadius = 200, stormMesh, stormTimer = 0;
 
@@ -275,6 +275,9 @@ scene.add(chestGrp);
 chests.push(chestGrp);
 }
 function init3D() {
+    playerPos = new THREE.Vector3(0, 0, 10);
+    velocity = new THREE.Vector3();
+    woodTex = makeWoodTexture();
 woodTex = makeWoodTexture();
 scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf97316);
