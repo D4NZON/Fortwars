@@ -1,417 +1,92 @@
-<!DOCTYPE html>
-<html lang="sv">
-<head>
-    <meta charset="UTF-8">
-    <title>Fortwars 3D - Sunset Edition</title>
-    <style>
-        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; background: #1e1b4b; }
-        #menu {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(180deg, rgba(49, 16, 47, 0.9) 0%, rgba(154, 52, 18, 0.9) 100%);
-            color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10;
-        }
-        .box { background: rgba(28, 25, 23, 0.85); padding: 35px; border-radius: 16px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.6); border: 1px solid #f97316; }
-        h1 { color: #fb923c; margin-top: 0; }
-        input { padding: 12px; font-size: 16px; border-radius: 8px; border: 2px solid #f97316; background: #292524; color: white; text-align: center; text-transform: uppercase; margin: 10px 0; }
-        button { padding: 12px 24px; font-size: 16px; font-weight: bold; background: #ea580c; color: white; border: none; border-radius: 8px; cursor: pointer; margin: 5px; transition: 0.2s; }
-        button:hover { background: #f97316; transform: scale(1.03); }
-        #hud { position: absolute; top: 15px; left: 15px; color: #fef3c7; font-size: 18px; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); display: none; background: rgba(0,0,0,0.3); padding: 12px 18px; border-radius: 10px; }
-        #crosshair { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; transform: translate(-50%, -50%); color: #fde047; font-size: 22px; pointer-events: none; display: none; text-shadow: 1px 1px 2px black; }
-        #controls { position: absolute; bottom: 15px; left: 15px; color: #fed7aa; font-size: 14px; text-shadow: 1px 1px 3px black; display: none; background: rgba(0,0,0,0.4); padding: 8px 14px; border-radius: 8px; }
-        #msgBanner { position: absolute; top: 20%; left: 50%; transform: translate(-50%, -50%); color: #ef4444; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 6px black; display: none; pointer-events: none; }
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-</head>
-<body>
-
-<div id="menu">
-    <div class="box">
-        <h1>🌅 Fortwars 3D</h1>
-        <p style="color: #fed7aa;">Skapa ett rum eller skriv in en kompis kod:</p>
-        <button onclick="createRoom()">Skapa nytt spel (Få kod)</button>
-        <br><br>
-        <input type="text" id="joinCode" placeholder="RUMSKOD" maxlength="5">
-        <button onclick="joinRoom()">Gå med i spel</button>
-        <p id="status" style="color: #fde047; font-weight: bold; margin-top: 15px;"></p>
-    </div>
-</div>
-
-<div id="hud">
-    <div>Rumskod: <b id="roomDisplay" style="color: #fb923c;">-</b></div>
-    <div>Liv: <b id="hpDisplay">100</b> HP</div>
-    <div>Byggblock: <b id="buildModeDisplay">Vägg [Q]</b></div>
-</div>
-<div id="msgBanner">DU BLEV ELIMINERAD!</div>
-<div id="crosshair">+</div>
-<div id="controls">
-    <b>WASD:</b> Spring | <b>Mellanslag:</b> Hoppa | <b>Vänsterklick:</b> Skjut | <b>Högerklick / E:</b> Bygg | <b>Q:</b> Byt Vägg/Ramp
-</div>
-
-<script>
-let peer, conn;
-let isHost = false;
-let roomCode = "";
-let hp = 100;
-let buildMode = "wall";
-
-let scene, camera, renderer;
-let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-let velocity = new THREE.Vector3();
-let canJump = false;
-let prevTime = performance.now();
-let walkTime = 0;
-
-let leftArm, rightArm, gun;
-let enemyMesh;
-let bullets = [];
-let buildings = [];
-
-function generateCode() {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let res = "";
-    for (let i = 0; i < 5; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
-    return res;
-}
-
-function createRoom() {
-    roomCode = generateCode();
-    isHost = true;
-    document.getElementById("status").innerText = "Din kod är: " + roomCode + " — Startar...";
-    
-    setTimeout(function() {
-        startGame();
-    }, 600);
-
-    if (typeof Peer !== "undefined") {
-        try {
-            peer = new Peer("MBB-" + roomCode);
-            peer.on('connection', function(connection) {
-                conn = connection;
-                setupConnection();
-            });
-        } catch (e) {}
-    }
-}
-
-function joinRoom() {
-    const code = document.getElementById("joinCode").value.trim().toUpperCase();
-    if (!code) return;
-    roomCode = code;
-    document.getElementById("status").innerText = "Ansluter till " + roomCode + "...";
-    
-    if (typeof Peer !== "undefined") {
-        peer = new Peer();
-        peer.on('open', function() {
-            conn = peer.connect("MBB-" + roomCode);
-            conn.on('open', function() {
-                setupConnection();
-                startGame();
-            });
-        });
-    }
-}
-
-function setupConnection() {
-    conn.on('data', function(data) {
-        if (data.type === "move" && enemyMesh) {
-            enemyMesh.position.set(data.x, data.y - 1.6, data.z);
-            enemyMesh.rotation.y = data.ry;
-        } else if (data.type === "shoot") {
-            spawnBullet(new THREE.Vector3(data.x, data.y, data.z), new THREE.Vector3(data.dx, data.dy, data.dz), false);
-        } else if (data.type === "build") {
-            placeBuilding(new THREE.Vector3(data.x, data.y, data.z), data.ry, data.mode);
-        } else if (data.type === "hit") {
-            hp -= 20;
-            document.getElementById("hpDisplay").innerText = hp;
-            if (hp <= 0) {
-                hp = 100;
-                document.getElementById("hpDisplay").innerText = hp;
-                camera.position.set(Math.random() * 20 - 10, 2, Math.random() * 20 - 10);
-                const banner = document.getElementById("msgBanner");
-                banner.style.display = "block";
-                setTimeout(function() { banner.style.display = "none"; }, 2000);
-            }
-        }
-    });
-}
-
-function startGame() {
-    document.getElementById("menu").style.display = "none";
-    document.getElementById("hud").style.display = "block";
-    document.getElementById("crosshair").style.display = "block";
-    document.getElementById("controls").style.display = "block";
-    document.getElementById("roomDisplay").innerText = roomCode;
-
-    if (typeof THREE === "undefined") {
-        alert("3D-motorn (Three.js) kunde inte laddas. Kontrollera länkarna på rad 22-23 i koden!");
-        return;
-    }
-
-    init3D();
-    animate();
-}
-
-function init3D() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf97316);
-    scene.fog = new THREE.FogExp2(0xfb923c, 0.012);
-
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 2, 10);
-    camera.rotation.order = "YXZ";
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // Gyllene kvällsbelysning
-    const hemiLight = new THREE.HemisphereLight(0xffedd5, 0x431407, 0.9);
-    scene.add(hemiLight);
-
-    const sunLight = new THREE.DirectionalLight(0xfde047, 1.2);
-    sunLight.position.set(-50, 25, -80);
-    scene.add(sunLight);
-
-    // Glödande sol vid horisonten
-    const sunGeo = new THREE.SphereGeometry(14, 32, 32);
-    const sunMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
-    const sunMesh = new THREE.Mesh(sunGeo, sunMat);
-    sunMesh.position.set(-60, 22, -140);
-    scene.add(sunMesh);
-
-    // Mark med varm kvällston
-    const floorGeo = new THREE.PlaneGeometry(240, 240);
-    const floorMat = new THREE.MeshLambertMaterial({ color: 0x3f6212 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    scene.add(floor);
-
-    const grid = new THREE.GridHelper(240, 60, 0x713f12, 0x4d7c0f);
-    scene.add(grid);
-
-    // Bergssilhuetter runt banan
-    const mountainMat = new THREE.MeshLambertMaterial({ color: 0x292524 });
-    for (let i = 0; i < 24; i++) {
-        const angle = (i / 24) * Math.PI * 2;
-        const dist = 105 + Math.random() * 15;
-        const height = 18 + Math.random() * 25;
-        const mGeo = new THREE.ConeGeometry(22, height, 5);
-        const mountain = new THREE.Mesh(mGeo, mountainMat);
-        mountain.position.set(Math.cos(angle) * dist, height / 2 - 1, Math.sin(angle) * dist);
-        scene.add(mountain);
-    }
-
-    // Spelarens händer och vapen
-    const armGeo = new THREE.BoxGeometry(0.15, 0.15, 0.6);
-    const skinMat = new THREE.MeshLambertMaterial({ color: 0xfcd34d });
-    
-    leftArm = new THREE.Mesh(armGeo, skinMat);
-    leftArm.position.set(-0.35, -0.3, -0.4);
-    camera.add(leftArm);
-
-    rightArm = new THREE.Mesh(armGeo, skinMat);
-    rightArm.position.set(0.35, -0.3, -0.4);
-    camera.add(rightArm);
-
-    const gunGeo = new THREE.BoxGeometry(0.1, 0.15, 0.5);
-    const gunMat = new THREE.MeshLambertMaterial({ color: 0x1c1917 });
-    gun = new THREE.Mesh(gunGeo, gunMat);
-    gun.position.set(0, 0.08, -0.25);
-    rightArm.add(gun);
-
-    scene.add(camera);
-
-    // Motståndare
-    const enemyGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-    const enemyMat = new THREE.MeshLambertMaterial({ color: 0xdc2626 });
-    enemyMesh = new THREE.Mesh(enemyGeo, enemyMat);
-    enemyMesh.position.set(0, -10, 0);
-    scene.add(enemyMesh);
-
-    document.body.addEventListener('click', function() {
-        if (document.pointerLockElement !== document.body) {
-            document.body.requestPointerLock();
-        }
-    });
-
-    document.addEventListener('mousemove', function(e) {
-        if (document.pointerLockElement === document.body) {
-            camera.rotation.y -= e.movementX * 0.002;
-            camera.rotation.x -= e.movementY * 0.002;
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-        }
-    });
-
-Använd koden med försiktighet.
-document.addEventListener('mousedown', function(e) {
-if (document.pointerLockElement !== document.body) return;
-if (e.button === 0) shoot();
-if (e.button === 2) build();
-});
-document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
-document.addEventListener('keydown', function(e) {
-switch (e.code) {
-case 'KeyW': moveForward = true; break;
-case 'KeyS': moveBackward = true; break;
-case 'KeyA': moveLeft = true; break;
-case 'KeyD': moveRight = true; break;
-case 'Space': if (canJump) { velocity.y += 12; canJump = false; } break;
-case 'KeyE': build(); break;
-case 'KeyQ':
-buildMode = buildMode === "wall" ? "ramp" : "wall";
-document.getElementById("buildModeDisplay").innerText = (buildMode === "wall" ? "Vägg" : "Ramp") + " [Q]";
-break;
-}
-});
-document.addEventListener('keyup', function(e) {
-switch (e.code) {
-case 'KeyW': moveForward = false; break;
-case 'KeyS': moveBackward = false; break;
-case 'KeyA': moveLeft = false; break;
-case 'KeyD': moveRight = false; break;
-}
-});
-}
-function shoot() {
-const dir = new THREE.Vector3();
-camera.getWorldDirection(dir);
-const startPos = camera.position.clone().add(dir.clone().multiplyScalar(0.8));
-spawnBullet(startPos, dir, true);
-rightArm.position.z = -0.25;
-if (conn && conn.open) {
-conn.send({ type: "shoot", x: startPos.x, y: startPos.y, z: startPos.z, dx: dir.x, dy: dir.y, dz: dir.z });
-}
+<!DOCTYPE html> <html lang="sv"> <head> <meta charset="UTF-8"> <title>Fortwars 3D - Sunset Edition</title> <style> body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; user-select: none; background: #1e1b4b; } #menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(180deg, rgba(49,16,47,0.9), rgba(154,52,18,0.9)); color: white; display: flex; align-items: center; justify-content: center; z-index: 10; } .box { background: rgba(28,25,23,0.9); padding: 30px; border-radius: 16px; text-align: center; border: 1px solid #f97316; } input { padding: 10px; font-size: 16px; border-radius: 8px; border: 2px solid #f97316; background: #292524; color: white; text-align: center; text-transform: uppercase; margin: 10px 0; } button { padding: 12px 24px; font-size: 16px; font-weight: bold; background: #ea580c; color: white; border: none; border-radius: 8px; cursor: pointer; margin: 5px; } #hud { position: absolute; top: 15px; left: 15px; color: #fef3c7; font-size: 18px; display: none; background: rgba(0,0,0,0.4); padding: 10px 15px; border-radius: 10px; } #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #fde047; font-size: 22px; pointer-events: none; display: none; } #controls { position: absolute; bottom: 15px; left: 15px; color: #fed7aa; font-size: 14px; display: none; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 8px; } #msgBanner { position: absolute; top: 20%; left: 50%; transform: translate(-50%,-50%); color: #ef4444; font-size: 32px; font-weight: bold; display: none; pointer-events: none; } </style> <script src="https://cloudflare.com"></script> <script src="https://unpkg.com"></script> </head> <body> <div id="menu"> <div class="box"> <h1 style="color:#fb923c; margin-top:0;">🌅 Fortwars 3D</h1> <button onclick="createRoom()">Skapa nytt spel (Få kod)</button><br><br> <input type="text" id="joinCode" placeholder="RUMSKOD" maxlength="5"> <button onclick="joinRoom()">Gå med i spel</button> <p id="status" style="color:#fde047; font-weight:bold;"></p> </div> </div> <div id="hud"> <div>Rumskod: <b id="roomDisplay" style="color:#fb923c;">-</b></div> <div>Liv: <b id="hpDisplay">100</b> HP</div> <div>Byggblock: <b id="buildModeDisplay">Vägg [Q]</b></div> </div> <div id="msgBanner">DU BLEV ELIMINERAD!</div> <div id="crosshair">+</div> <div id="controls"><b>WASD:</b> Spring | <b>Mellanslag:</b> Hoppa | <b>Vänsterklick:</b> Skjut | <b>Högerklick/E:</b> Bygg | <b>Q:</b> Byt block | <b>G:</b> Edita</div> <script> let peer, conn, roomCode = "", hp = 100, buildIndex = 0, buildMode = "wall"; const buildModes = ["wall", "ramp", "floor", "cone"]; const buildNames = { wall: "Vägg", ramp: "Ramp", floor: "Golv", cone: "Kon" }; let scene, camera, renderer, raycaster, leftArm, rightArm, enemyMesh; let moveF = false, moveB = false, moveL = false, moveR = false, canJump = false; let velocity = new THREE.Vector3(), prevTime = performance.now(), walkTime = 0; let bullets = [], buildings = []; function createRoom() { const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; roomCode = ""; for (let i = 0; i < 5; i++) roomCode += chars.charAt(Math.floor(Math.random() * chars.length)); document.getElementById("status").innerText = "Din kod: " + roomCode + " — Startar..."; setTimeout(startGame, 500); if (typeof Peer !== "undefined") { try { peer = new Peer("MBB-" + roomCode); peer.on('connection', c => { conn = c; setupConnection(); }); } catch (e) {} } } function joinRoom() { const code = document.getElementById("joinCode").value.trim().toUpperCase(); if (!code || typeof Peer === "undefined") return; roomCode = code; document.getElementById("status").innerText = "Ansluter till " + roomCode + "..."; peer = new Peer(); peer.on('open', () => { conn = peer.connect("MBB-" + roomCode); conn.on('open', () => { setupConnection(); startGame(); }); }); } function setupConnection() { conn.on('data', d => { if (d.type === "move" && enemyMesh) { enemyMesh.position.set(d.x, d.y - 1.6, d.z); enemyMesh.rotation.y = d.ry; } else if (d.type === "shoot") spawnBullet(new THREE.Vector3(d.x, d.y, d.z), new THREE.Vector3(d.dx, d.dy, d.dz), false); else if (d.type === "build") placeBuilding(new THREE.Vector3(d.x, d.y, d.z), d.ry, d.mode, d.id); else if (d.type === "edit") { const t = buildings.find(b => b.userData.id === d.id); if (t) applyEdit(t, d.edited); } else if (d.type === "hit") { hp -= 20; document.getElementById("hpDisplay").innerText = hp; if (hp <= 0) { hp = 100; document.getElementById("hpDisplay").innerText = hp; camera.position.set(Math.random() * 20 - 10, 2, Math.random() * 20 - 10); const b = document.getElementById("msgBanner"); b.style.display = "block"; setTimeout(() => b.style.display = "none", 2000); } } }); } function startGame() { document.getElementById("menu").style.display = "none"; document.getElementById("hud").style.display = "block"; document.getElementById("crosshair").style.display = "block"; document.getElementById("controls").style.display = "block"; document.getElementById("roomDisplay").innerText = roomCode; if (typeof THREE === "undefined") { alert("Three.js saknas! Kolla rad 17-18."); return; } init3D(); animate(); } function init3D() { scene = new THREE.Scene(); scene.background = new THREE.Color(0xf97316); scene.fog = new THREE.FogExp2(0xfb923c, 0.012); camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); camera.position.set(0, 2, 10); camera.rotation.order = "YXZ"; raycaster = new THREE.Raycaster(); renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement); scene.add(new THREE.HemisphereLight(0xffedd5, 0x431407, 0.9)); const sunLight = new THREE.DirectionalLight(0xfde047, 1.2); sunLight.position.set(-50, 25, -80); scene.add(sunLight); const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(
+14, 32, 32), new THREE.MeshBasicMaterial({ color: 0xfef08a })); sunMesh.position.set(-60, 22, -140); scene.add(sunMesh); const floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ color: 0x3f6212 })); floor.rotation.x = -Math.PI / 2; scene.add(floor); scene.add(new THREE.GridHelper(240, 60, 0x713f12, 0x4d7c0f)); const mMat = new THREE.MeshLambertMaterial({ color: 0x292524 }); for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2, d = 105 + Math.random() * 15, h = 18 + Math.random() * 25; const m = new THREE.Mesh(new THREE.ConeGeometry(22, h, 5), mMat); m.position.set(Math.cos(a) * d, h / 2 - 1, Math.sin(a) * d); scene.add(m); } const skinMat = new THREE.MeshLambertMaterial({ color: 0xfcd34d }); leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), skinMat); leftArm.position.set(-0.35, -0.3, -0.4); camera.add(leftArm); rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), skinMat); rightArm.position.set(0.35, -0.3, -0.4); camera.add(rightArm); const gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.5), new THREE.MeshLambertMaterial({ color: 0x1c1917 })); gun.position.set(0, 0.08, -0.25); rightArm.add(gun); scene.add(camera); enemyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.8, 0.8), new THREE.MeshLambertMaterial({ color: 0xdc2626 })); enemyMesh.position.set(0, -10, 0); scene.add(enemyMesh); document.body.addEventListener('click', () => { if (document.pointerLockElement !== document.body) document.body.requestPointerLock(); }); document.addEventListener('mousemove', e => { if (document.pointerLockElement === document.body) { camera.rotation.y -= e.movementX * 0.002; camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x - e.movementY * 0.002)); } }); document.addEventListener('mousedown', e => { if (document.pointerLockElement !== document.body) return; if (e.button === 0) shoot(); if (e.button === 2) build(); }); document.addEventListener('contextmenu', e => e.preventDefault()); document.addEventListener('keydown', e => { if (e.code === 'KeyW') moveF = true; if (e.code === 'KeyS') moveB = true; if (e.code === 'KeyA') moveL = true; if (e.code === 'KeyD') moveR = true; if (e.code === 'Space' && canJump) { velocity.y += 12; canJump = false; } if (e.code === 'KeyE') build(); if (e.code === 'KeyG') editBuilding(); if (e.code === 'KeyQ') { buildIndex = (buildIndex + 1) % buildModes.length; buildMode = buildModes[buildIndex]; document.getElementById("buildModeDisplay").innerText = buildNames[buildMode] + " [Q]"; } }); document.addEventListener('keyup', e => { if (e.code === 'KeyW') moveF = false; if (e.code === 'KeyS') moveB = false; if (e.code === 'KeyA') moveL = false; if (e.code === 'KeyD') moveR = false; }); } function shoot() { const dir = new THREE.Vector3(); camera.getWorldDirection(dir); const pos = camera.position.clone().add(dir.clone().multiplyScalar(0.8)); spawnBullet(pos, dir, true); rightArm.position.z = -0.25; if (conn && conn.open) conn.send({ type: "shoot", x: pos.x, y: pos.y, z: pos.z, dx: dir.x, dy: dir.y, dz: dir.z });
 }
 function spawnBullet(pos, dir, isMine) {
-const bGeo = new THREE.SphereGeometry(0.12, 8, 8);
-const bMat = new THREE.MeshBasicMaterial({ color: isMine ? 0xfef08a : 0xef4444 });
-const bullet = new THREE.Mesh(bGeo, bMat);
-bullet.position.copy(pos);
-scene.add(bullet);
-bullets.push({ mesh: bullet, dir: dir, isMine: isMine, life: 60 });
+const b = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: isMine ? 0xfef08a : 0xef4444 }));
+b.position.copy(pos); scene.add(b);
+bullets.push({ mesh: b, dir: dir, isMine: isMine, life: 60 });
 }
 function build() {
-const dir = new THREE.Vector3();
-camera.getWorldDirection(dir);
-dir.y = 0;
-dir.normalize();
-const targetPos = camera.position.clone().add(dir.multiplyScalar(3.5));
-const snapX = Math.round(targetPos.x / 4) * 4;
-const snapZ = Math.round(targetPos.z / 4) * 4;
-const snapY = Math.max(2, Math.round(camera.position.y / 4) * 4 + 2);
-const snapRot = Math.round(camera.rotation.y / (Math.PI / 2)) * (Math.PI / 2);
-const pos = new THREE.Vector3(snapX, snapY, snapZ);
-placeBuilding(pos, snapRot, buildMode);
-if (conn && conn.open) {
-conn.send({ type: "build", x: pos.x, y: pos.y, z: pos.z, ry: snapRot, mode: buildMode });
+const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y = 0; dir.normalize();
+const tPos = camera.position.clone().add(dir.multiplyScalar(3.5));
+const sx = Math.round(tPos.x / 4) * 4, sz = Math.round(tPos.z / 4) * 4;
+const baseY = Math.max(0, Math.floor((camera.position.y - 0.5) / 4) * 4);
+let sy = baseY + 2;
+if (buildMode === "floor") sy = baseY + 0.15;
+if (buildMode === "cone") sy = baseY + 1.2;
+const ry = Math.round(camera.rotation.y / (Math.PI / 2)) * (Math.PI / 2);
+const pos = new THREE.Vector3(sx, sy, sz);
+const id = Math.random().toString(36).substring(2, 9);
+placeBuilding(pos, ry, buildMode, id);
+if (conn && conn.open) conn.send({ type: "build", x: pos.x, y: pos.y, z: pos.z, ry: ry, mode: buildMode, id: id });
+}
+function placeBuilding(pos, ry, mode, id) {
+let geo = mode === "floor" ? new THREE.BoxGeometry(4, 0.3, 4) : mode === "cone" ? new THREE.ConeGeometry(2.8, 2.4, 4) : new THREE.BoxGeometry(4, 4, 0.3);
+const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xb45309, transparent: true, opacity: 1.0 }));
+mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x451a03 })));
+mesh.position.copy(pos); mesh.rotation.y = ry;
+mesh.userData = { mode: mode, id: id, edited: false, origPos: pos.clone(), origScale: mesh.scale.clone() };
+if (mode === "ramp") mesh.rotation.x = Math.PI / 4;
+if (mode === "cone") mesh.rotation.y = ry + Math.PI / 4;
+scene.add(mesh); buildings.push(mesh);
+}
+function editBuilding() {
+raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+const hits = raycaster.intersectObjects(buildings, false);
+if (hits.length > 0 && hits[0].distance < 7) {
+const m = hits[0].object, st = !m.userData.edited;
+applyEdit(m, st);
+if (conn && conn.open) conn.send({ type: "edit", id: m.userData.id, edited: st });
 }
 }
-function placeBuilding(pos, rotY, mode) {
-const geo = new THREE.BoxGeometry(4, 4, 0.3);
-const mat = new THREE.MeshLambertMaterial({ color: 0xb45309 });
-const mesh = new THREE.Mesh(geo, mat);
-// Snygg mörk träram runt varje byggblock
-const edges = new THREE.EdgesGeometry(geo);
-const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x451a03 }));
-mesh.add(line);
-mesh.position.copy(pos);
-mesh.rotation.y = rotY;
-mesh.userData.mode = mode;
-if (mode === "ramp") {
-mesh.rotation.x = Math.PI / 4;
+function applyEdit(m, ed) {
+m.userData.edited = ed;
+if (ed) {
+m.material.color.setHex(0x0284c7); m.material.opacity = 0.65;
+if (m.userData.mode === "wall") { m.scale.set(1, 0.45, 1); m.position.y = m.userData.origPos.y - 1.1; }
+else m.scale.set(0.45, 1, 1);
+} else {
+m.material.color.setHex(0xb45309); m.material.opacity = 1.0;
+m.scale.copy(m.userData.origScale); m.position.copy(m.userData.origPos);
 }
-scene.add(mesh);
-buildings.push(mesh);
 }
 function animate() {
 requestAnimationFrame(animate);
-const time = performance.now();
-const delta = (time - prevTime) / 1000;
-prevTime = time;
-velocity.x -= velocity.x * 10.0 * delta;
-velocity.z -= velocity.z * 10.0 * delta;
-velocity.y -= 30.0 * delta;
-const forward = new THREE.Vector3();
-camera.getWorldDirection(forward);
-forward.y = 0;
-forward.normalize();
-const right = new THREE.Vector3();
-right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-const isMoving = moveForward || moveBackward || moveLeft || moveRight;
-if (moveForward) { velocity.x += forward.x * 80 * delta; velocity.z += forward.z * 80 * delta; }
-if (moveBackward) { velocity.x -= forward.x * 80 * delta; velocity.z -= forward.z * 80 * delta; }
-if (moveRight) { velocity.x += right.x * 80 * delta; velocity.z += right.z * 80 * delta; }
-if (moveLeft) { velocity.x -= right.x * 80 * delta; velocity.z -= right.z * 80 * delta; }
-const nextX = camera.position.x + velocity.x * delta;
-const nextZ = camera.position.z + velocity.z * delta;
+const time = performance.now(), delta = (time - prevTime) / 1000; prevTime = time;
+velocity.x -= velocity.x * 10 * delta; velocity.z -= velocity.z * 10 * delta; velocity.y -= 30 * delta;
+const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+const rgt = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+if (moveF) { velocity.x += fwd.x * 80 * delta; velocity.z += fwd.z * 80 * delta; }
+if (moveB) { velocity.x -= fwd.x * 80 * delta; velocity.z -= fwd.z * 80 * delta; }
+if (moveR) { velocity.x += rgt.x * 80 * delta; velocity.z += rgt.z * 80 * delta; }
+if (moveL) { velocity.x -= rgt.x * 80 * delta; velocity.z -= rgt.z * 80 * delta; }
+const nx = camera.position.x + velocity.x * delta, nz = camera.position.z + velocity.z * delta;
 let blocked = false;
-const playerBox = new THREE.Box3(
-new THREE.Vector3(nextX - 0.4, camera.position.y - 1.5, nextZ - 0.4),
-new THREE.Vector3(nextX + 0.4, camera.position.y + 0.3, nextZ + 0.4)
-);
-buildings.forEach(function(b) {
-if (b.userData.mode === "wall") {
-const wallBox = new THREE.Box3().setFromObject(b);
-if (playerBox.intersectsBox(wallBox)) {
-blocked = true;
-}
-}
-});
-if (!blocked) {
-camera.position.x = nextX;
-camera.position.z = nextZ;
-}
+const pBox = new THREE.Box3(new THREE.Vector3(nx - 0.4, camera.position.y - 1.5, nz - 0.4), new THREE.Vector3(nx + 0.4, camera.position.y + 0.3, nz + 0.4));
+buildings.forEach(b => { if (b.userData.mode === "wall" && !b.userData.edited && pBox.intersectsBox(new THREE.Box3().setFromObject(b))) blocked = true; });
+if (!blocked) { camera.position.x = nx; camera.position.z = nz; }
 camera.position.y += velocity.y * delta;
-let groundHeight = 2;
-buildings.forEach(function(b) {
+let gH = 2;
+buildings.forEach(b => {
 if (Math.abs(camera.position.x - b.position.x) < 2.2 && Math.abs(camera.position.z - b.position.z) < 2.2) {
-if (b.userData.mode === "ramp") {
-groundHeight = Math.max(groundHeight, b.position.y + 1.5);
-}
+if (b.userData.mode === "ramp") gH = Math.max(gH, b.position.y + 1.5);
+else if (b.userData.mode === "floor" && !b.userData.edited && camera.position.y >= b.position.y + 1.0) gH = Math.max(gH, b.position.y + 1.85);
+else if (b.userData.mode === "cone" && !b.userData.edited && camera.position.y >= b.position.y + 0.5) gH = Math.max(gH, b.position.y + 2.4);
 }
 });
-if (camera.position.y < groundHeight) {
-velocity.y = 0;
-camera.position.y = groundHeight;
-canJump = true;
-}
-if (isMoving && canJump) {
+if (camera.position.y < gH) { velocity.y = 0; camera.position.y = gH; canJump = true; }
+if ((moveF || moveB || moveL || moveR) && canJump) {
 walkTime += delta * 12;
 leftArm.position.y = -0.3 + Math.sin(walkTime) * 0.05;
-leftArm.position.z = -0.4 + Math.cos(walkTime) * 0.08;
 rightArm.position.y = -0.3 - Math.sin(walkTime) * 0.05;
-rightArm.position.z += (-0.4 - Math.cos(walkTime) * 0.05 - rightArm.position.z) * 0.2;
-} else {
-leftArm.position.y += (-0.3 - leftArm.position.y) * 0.1;
-leftArm.position.z += (-0.4 - leftArm.position.z) * 0.1;
-rightArm.position.y += (-0.3 - rightArm.position.y) * 0.1;
-rightArm.position.z += (-0.4 - rightArm.position.z) * 0.1;
 }
 for (let i = bullets.length - 1; i >= 0; i--) {
-const b = bullets[i];
-b.mesh.position.add(b.dir.clone().multiplyScalar(1.5));
-b.life--;
-if (b.isMine && enemyMesh && b.mesh.position.distanceTo(enemyMesh.position) < 1.2) {
-if (conn && conn.open) conn.send({ type: "hit" });
-b.life = 0;
+const b = bullets[i]; b.mesh.position.add(b.dir.clone().multiplyScalar(1.5)); b.life--;
+if (b.isMine && enemyMesh && b.mesh.position.distanceTo(enemyMesh.position) < 1.2) { if (conn && conn.open) conn.send({ type: "hit" }); b.life = 0; }
+if (b.life <= 0) { scene.remove(b.mesh); bullets.splice(i, 1); }
 }
-if (b.life <= 0) {
-scene.remove(b.mesh);
-bullets.splice(i, 1);
-}
-}
-if (conn && conn.open) {
-        conn.send({
-            type: "move",
-            x: camera.position.x,
-            y: camera.position.y,
-            z: camera.position.z,
-            ry: camera.rotation.y
-        });
-    }
-
-    renderer.render(scene, camera);
+if (conn && conn.open) conn.send({ type: "move", x: camera.position.x, y: camera.position.y, z: camera.position.z, ry: camera.rotation.y });
+renderer.render(scene, camera);
 }
 </script>
 </body>
