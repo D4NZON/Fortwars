@@ -401,3 +401,18 @@ scene.remove(b.mesh);
 bullets.splice(i, 1);
 }
 }
+if (conn && conn.open) {
+        conn.send({
+            type: "move",
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z,
+            ry: camera.rotation.y
+        });
+    }
+
+    renderer.render(scene, camera);
+}
+</script>
+</body>
+</html>
