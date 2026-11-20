@@ -50,7 +50,8 @@
             <button class="skin-btn" style="background:#18181b;" onclick="selectSkin(0x18181b, this)">Ninja</button>
             <button class="skin-btn" style="background:#ec4899;" onclick="selectSkin(0xec4899, this)">Rosa</button>
         </div>
-        <button onclick="createRoom()">Skapa nytt spel (Få kod)</button><br>
+        <button onclick="createRoom()">Skapa nytt spel (Få kod)</button>
+        <br><button id="copyLinkBtn" onclick="copyInviteLink()" style="display:none; background:#16a34a; margin-top:8px;">📋 Kopiera inbjudningslänk</button>
         <input type="text" id="joinCode" placeholder="RUMSKOD" maxlength="5">
         <button onclick="joinRoom()">Gå med i spel</button>
         <p id="status" style="color:#fde047; font-weight:bold; margin-bottom:0;"></p>
@@ -91,7 +92,7 @@ let playerGroup, playerPos = null, playerYaw = 0, camPitch = 0.2;
 let enemyMesh, leftLeg, rightLeg, weaponModels = {}, blueprintGroup;
 let moveF = false, moveB = false, moveL = false, moveR = false, canJump = false;
 let velocity = null, prevTime = performance.now(), walkTime = 0;
-let bullets = [], buildings = [], chests = [];
+let bullets = [], buildings = [], chests = []; houseWalls = [];
 let stormRadius = 200, stormMesh, stormTimer = 0;
 
 function makeWoodTexture() {
@@ -161,7 +162,20 @@ isReloading = false;
 updateAmmoHUD();
 }, 1500);
 }
+     function copyInviteLink() {
+    const url = window.location.origin + window.location.pathname + "?room=" + roomCode;
+    navigator.clipboard.writeText(url);
+    document.getElementById("status").innerText = "Inbjudningslänk kopierad!";
+}
+window.addEventListener("DOMContentLoaded", () => {
+    const r = new URLSearchParams(window.location.search).get("room");
+    if (r) {
+        document.getElementById("joinCode").value = r.toUpperCase();
+        document.getElementById("status").innerText = "Rumskod " + r.toUpperCase() + " redo – klicka på Gå med i spel!";
+    }
+});
 function createRoom() {
+   
 const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 roomCode = "";
 for (let i = 0; i < 5; i++) roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
